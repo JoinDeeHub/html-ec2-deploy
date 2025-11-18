@@ -11,12 +11,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Optional: create a file from multiline secret and show fingerprint (helpful if web UI mangles newlines)
       - name: Write SSH key to file
         run: |
+          # write the multiline secret to a file
           printf "%s\n" "${{ secrets.EC2_SSH_KEY }}" > private_key
-          chmod 600 private_key
-          # show fingerprint (non-sensitive)
+          # make readable so action containers (scp/ssh) can tar/read it
+          chmod 644 private_key
+          # show fingerprint (non-sensitive) to confirm key is valid
           ssh-keygen -lf private_key || true
 
       - name: Copy files to EC2 (scp)
@@ -24,7 +25,7 @@ jobs:
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key_path: private_key        # use the file we wrote
+          key_path: private_key
           source: "./*"
           target: "/home/${{ secrets.EC2_USER }}/app"
           overwrite: true
@@ -42,3 +43,12 @@ jobs:
             sudo cp /home/${{ secrets.EC2_USER }}/app/index.html /var/www/html/index.html
             sudo chown www-data:www-data /var/www/html/index.html
             sudo systemctl enable --now nginx
+
+      - name: Cleanup private key
+        run: |
+          # securely delete the private key file if shred available, otherwise rm
+          if command -v shred >/dev/null 2>&1; then
+            shred -u private_key || true
+          else
+            rm -f private_key || true
+          fi
