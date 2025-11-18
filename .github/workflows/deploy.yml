@@ -1,35 +1,40 @@
 name: Deploy HTML to EC2
-
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Copy files to EC2
+      - name: Decode SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > private_key
+          chmod 600 private_key
+
+      - name: Copy site files to EC2 (scp)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key_path: private_key
           source: "./*"
           target: "/home/${{ secrets.EC2_USER }}/app"
+          strip_components: 0
+          overwrite: true
 
-      - name: Restart Web Server
+      - name: Restart Web Server (sudo cmds)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key_path: private_key
           script: |
             sudo apt update
             sudo apt install -y nginx
             sudo cp /home/${{ secrets.EC2_USER }}/app/index.html /var/www/html/index.html
-            sudo systemctl restart nginx
+            sudo chown www-data:www-data /var/www/html/index.html
+            sudo systemctl enable --now nginx
