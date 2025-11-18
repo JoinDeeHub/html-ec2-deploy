@@ -2,53 +2,34 @@ name: Deploy HTML to EC2
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Write SSH key to file
-        run: |
-          # write the multiline secret to a file
-          printf "%s\n" "${{ secrets.EC2_SSH_KEY }}" > private_key
-          # make readable so action containers (scp/ssh) can tar/read it
-          chmod 644 private_key
-          # show fingerprint (non-sensitive) to confirm key is valid
-          ssh-keygen -lf private_key || true
-
-      - name: Copy files to EC2 (scp)
+      - name: Copy files to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key_path: private_key
+          key: ${{ secrets.EC2_SSH_KEY }}
           source: "./*"
           target: "/home/${{ secrets.EC2_USER }}/app"
-          overwrite: true
-          strip_components: 0
 
-      - name: Deploy to nginx (run sudo commands)
+      - name: Restart Web Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key_path: private_key
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sudo apt update
             sudo apt install -y nginx
             sudo cp /home/${{ secrets.EC2_USER }}/app/index.html /var/www/html/index.html
-            sudo chown www-data:www-data /var/www/html/index.html
-            sudo systemctl enable --now nginx
-
-      - name: Cleanup private key
-        run: |
-          # securely delete the private key file if shred available, otherwise rm
-          if command -v shred >/dev/null 2>&1; then
-            shred -u private_key || true
-          else
-            rm -f private_key || true
-          fi
+            sudo systemctl restart nginx
