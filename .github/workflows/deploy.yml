@@ -7,18 +7,16 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Decode SSH key (from base64 secret)
+      # Optional: create a file from multiline secret and show fingerprint (helpful if web UI mangles newlines)
+      - name: Write SSH key to file
         run: |
-          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > private_key
+          printf "%s\n" "${{ secrets.EC2_SSH_KEY }}" > private_key
           chmod 600 private_key
-
-      - name: Optional: show key fingerprint (debug)
-        run: |
+          # show fingerprint (non-sensitive)
           ssh-keygen -lf private_key || true
 
       - name: Copy files to EC2 (scp)
@@ -26,13 +24,13 @@ jobs:
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key_path: private_key
+          key_path: private_key        # use the file we wrote
           source: "./*"
           target: "/home/${{ secrets.EC2_USER }}/app"
-          strip_components: 0
           overwrite: true
+          strip_components: 0
 
-      - name: Restart Web Server & deploy (sudo commands)
+      - name: Deploy to nginx (run sudo commands)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -44,8 +42,3 @@ jobs:
             sudo cp /home/${{ secrets.EC2_USER }}/app/index.html /var/www/html/index.html
             sudo chown www-data:www-data /var/www/html/index.html
             sudo systemctl enable --now nginx
-
-      # Optional debugging step (uncomment if you need verbose ssh auth debugging)
-      #- name: Debug SSH auth (verbose)
-      #  run: |
-      #    ssh -i private_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -vvv ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'echo RUNNER_SSH_OK'
